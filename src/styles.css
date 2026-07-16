@@ -53,6 +53,20 @@ button {
   overflow: visible;
 }
 
+.home-hero::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: 6px;
+  z-index: 0;
+  width: 132px;
+  height: 58px;
+  border-radius: 999px;
+  background: rgba(36, 31, 74, 0.16);
+  filter: blur(18px);
+  pointer-events: none;
+}
+
 .hero-number {
   position: absolute;
   top: 0;
@@ -65,7 +79,7 @@ button {
 
 .hero-copy {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   max-width: 222px;
 }
 
@@ -96,9 +110,8 @@ button {
   position: absolute;
   right: 0;
   bottom: -8px;
-  z-index: 0;
+  z-index: 1;
   width: 160px;
-  filter: drop-shadow(0 16px 26px rgba(36, 31, 74, 0.18));
 }
 
 .card-list {

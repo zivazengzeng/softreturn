@@ -119,6 +119,8 @@ const statusLabels: Record<TaskStatus, string> = {
   done: "已完成",
 };
 
+type TaskStatusLabels = Record<TaskStatus, string>;
+
 const resultOptions: ActualResult[] = [
   "没发生",
   "发生了一点，但我处理了",
@@ -144,7 +146,7 @@ const planMonths = [
   {
     title: "第2个月：恢复一点身体信任",
     goal: "让身体重新相信：心跳、手麻、紧张都可以被承受。",
-    tasks: ["每周 2 次轻快走 20-30 分钟", "每周 1 次短途开车，固定路线", "上班固定高速路线开车", "记录睡眠时间"],
+    tasks: ["每周 2 次轻快走 20-30 分钟", "每周 1 次短途开车，固定路线", "上班固定高速路线开车", "记录睡眠状态"],
     tip: "恢复不是完全不怕，而是怕的时候也能处理一点点。",
     cat: "trust",
   },
@@ -157,6 +159,137 @@ const planMonths = [
   },
 ] as const;
 
+const extraDailyTaskCategories = [
+  {
+    name: "身体安抚",
+    tasks: ["喝一杯温水", "做 3 次慢呼吸", "洗个热水澡/泡脚", "做一次护肤", "给肩颈放松 3 分钟", "感到心慌时安抚自己"],
+  },
+  {
+    name: "睡眠修复",
+    tasks: ["睡前放下手机 10 分钟", "早点躺下但不强迫睡着"],
+  },
+  {
+    name: "饮食稳定",
+    tasks: ["正常吃一份主食", "吃一份蛋白质"],
+  },
+  {
+    name: "轻活动",
+    tasks: ["走到楼下再回来"],
+  },
+  {
+    name: "焦虑降噪",
+    tasks: ["不搜索身体症状", "记录一次身体误报", "给自己发一句安抚话", "今天允许自己慢一点"],
+  },
+  {
+    name: "外出/开车信任",
+    tasks: ["开一小段熟悉路线", "出门逛街/逛公园了"],
+  },
+  {
+    name: "体重友好",
+    tasks: ["今天不称体重", "不因为体重少吃一顿", "穿一件舒服的衣服", "对镜子里的自己少批评一句"],
+  },
+  {
+    name: "生活恢复",
+    tasks: ["做一件不用表现的小事", "整理一个小角落", "和一个安全的人说句话", "给今天留 10 分钟空白"],
+  },
+] as const;
+
+const taskStatusLabelMap: Record<string, TaskStatusLabels> = {
+  "晒太阳 10 分钟": { not_started: "没晒到", partial: "晒了一小会儿", done: "晒够 10 分钟" },
+  "晚饭后散步 10-20 分钟": { not_started: "没出门", partial: "走了一小段", done: "走够 20 分钟" },
+  "正常吃三顿饭": { not_started: "没吃齐", partial: "吃了两顿也算", done: "正常吃了三顿" },
+  "记录一个“没有发生的灾难”": { not_started: "今天没记录", partial: "想到了一个", done: "写下一条证据" },
+  "每周 2 次轻快走 20-30 分钟": { not_started: "今天没走", partial: "轻快走了一会儿", done: "走够 20-30 分钟" },
+  "每周 1 次短途开车，固定路线": { not_started: "今天没开", partial: "开了一小段", done: "完成固定路线" },
+  "上班固定高速路线开车": { not_started: "今天没上高速", partial: "走了一段熟悉高速", done: "完成上班高速路线" },
+  "记录睡眠状态": { not_started: "熬大夜", partial: "普通睡眠", done: "睡的很饱" },
+  "每餐先吃蛋白质": { not_started: "没特别注意", partial: "有一餐先吃了", done: "每餐都先吃了" },
+  "晚餐主食减半，但不取消": { not_started: "没调整", partial: "少吃了一点", done: "减半但没取消" },
+  "每周 3 次快走": { not_started: "今天没走", partial: "快走了一会儿", done: "完成一次快走" },
+  "膝盖疼时改为椭圆机/骑车/游泳": { not_started: "硬扛了", partial: "换了轻一点方式", done: "好好保护了膝盖" },
+  "喝一杯温水": { not_started: "没顾上", partial: "喝了几口", done: "喝完一杯" },
+  "做 3 次慢呼吸": { not_started: "还没做", partial: "做了一轮", done: "身体慢下来一点" },
+  "洗个热水澡/泡脚": { not_started: "没做", partial: "简单洗了洗", done: "身体舒服了一点" },
+  "做一次护肤": { not_started: "没洗脸", partial: "简单护肤", done: "认真护肤甚至敷了面膜！" },
+  "给肩颈放松 3 分钟": { not_started: "没放松", partial: "动了几下", done: "放松了一轮" },
+  "感到心慌时安抚自己": { not_started: "立刻紧张了", partial: "安抚了1分钟内恢复", done: "安静等过了那阵感觉" },
+  "睡前放下手机 10 分钟": { not_started: "没放下", partial: "放下了一会儿", done: "做到了 10 分钟" },
+  "早点躺下但不强迫睡着": { not_started: "没做到", partial: "躺早了一点", done: "给身体留了时间" },
+  "正常吃一份主食": { not_started: "没吃主食", partial: "吃了一点", done: "好好吃了" },
+  "吃一份蛋白质": { not_started: "没注意", partial: "吃了一点", done: "吃到一份" },
+  "走到楼下再回来": { not_started: "没下楼", partial: "走到门口", done: "下楼走了一圈" },
+  "不搜索身体症状": { not_started: "搜了也停下了", partial: "少搜了一次", done: "今天没搜索" },
+  "记录一次身体误报": { not_started: "还没记录", partial: "想到了一次", done: "写下一条" },
+  "给自己发一句安抚话": { not_started: "没发", partial: "想了一句", done: "写下来了" },
+  "今天允许自己慢一点": { not_started: "很难允许", partial: "想起来一次", done: "真的慢了一点" },
+  "开一小段熟悉路线": { not_started: "今天没开", partial: "开了一小段", done: "完成熟悉路线" },
+  "出门逛街/逛公园了": { not_started: "没去", partial: "去了一会儿", done: "认真逛了" },
+  "今天不称体重": { not_started: "称了也没事", partial: "忍住一次", done: "今天没称" },
+  "不因为体重少吃一顿": { not_started: "没做到", partial: "吃了一点", done: "正常吃了" },
+  "穿一件舒服的衣服": { not_started: "忍着不舒服", partial: "换了一下", done: "穿得舒服" },
+  "对镜子里的自己少批评一句": { not_started: "批评了也停下", partial: "安静观察", done: "夸了自己" },
+  "做一件不用表现的小事": { not_started: "没做", partial: "做了一点", done: "做完一件" },
+  "整理一个小角落": { not_started: "没整理", partial: "收了一点", done: "整理好一处" },
+  "和一个安全的人说句话": { not_started: "没联系", partial: "发了一句", done: "聊了一会儿" },
+  "给今天留 10 分钟空白": { not_started: "没留出来", partial: "留了一点", done: "安静待了 10 分钟" },
+};
+
+const taskLabelMap: Record<string, string> = {
+  "喝一杯温水": "喝水",
+  "做 3 次慢呼吸": "呼吸",
+  "洗个热水澡/泡脚": "放松",
+  "做一次护肤": "护肤",
+  "给肩颈放松 3 分钟": "肩颈",
+  "感到心慌时安抚自己": "安抚",
+  "睡前放下手机 10 分钟": "睡前",
+  "早点躺下但不强迫睡着": "躺下",
+  "正常吃一份主食": "吃饭",
+  "吃一份蛋白质": "蛋白质",
+  "走到楼下再回来": "下楼",
+  "不搜索身体症状": "降噪",
+  "记录一次身体误报": "误报",
+  "给自己发一句安抚话": "安抚",
+  "今天允许自己慢一点": "慢一点",
+  "开一小段熟悉路线": "路线",
+  "出门逛街/逛公园了": "外出",
+  "今天不称体重": "体重",
+  "不因为体重少吃一顿": "吃饭",
+  "穿一件舒服的衣服": "舒服",
+  "对镜子里的自己少批评一句": "镜子",
+  "做一件不用表现的小事": "小事",
+  "整理一个小角落": "整理",
+  "和一个安全的人说句话": "联系",
+  "给今天留 10 分钟空白": "空白",
+};
+
+const taskNoteMap: Record<string, string> = {
+  "喝一杯温水": "一点温热入口，也是在告诉身体：我在照顾你。",
+  "做 3 次慢呼吸": "不追求立刻平静，只给身体一个慢下来的信号。",
+  "洗个热水澡/泡脚": "让温度帮身体松一点，简单洗洗也算。",
+  "做一次护肤": "照顾脸，也是在提醒自己：我值得被好好对待。",
+  "给肩颈放松 3 分钟": "身体绷住很正常，松一点点就够了。",
+  "感到心慌时安抚自己": "心慌来时不用赢过它，陪自己等一等。",
+  "睡前放下手机 10 分钟": "不是强迫早睡，只是给大脑一点降噪时间。",
+  "早点躺下但不强迫睡着": "躺下就是休息，不必马上睡着。",
+  "正常吃一份主食": "主食不是敌人，稳定供应会让身体安心。",
+  "吃一份蛋白质": "给身体一点扎实的材料，不需要完美搭配。",
+  "走到楼下再回来": "走到门口也可以，先让身体知道外面是安全的。",
+  "不搜索身体症状": "想搜也很正常，能停下一次就已经在降噪。",
+  "记录一次身体误报": "身体报警不等于危险，写下它过去的证据。",
+  "给自己发一句安抚话": "像对朋友说话那样，对今天的自己说一句。",
+  "今天允许自己慢一点": "慢不是退步，是身体在重新找节奏。",
+  "开一小段熟悉路线": "熟悉路线就够了，不需要临时加难度。",
+  "出门逛街/逛公园了": "出去一会儿也算，不需要逛很久。",
+  "今天不称体重": "把一天从数字里拿回来，先照顾身体感受。",
+  "不因为体重少吃一顿": "今天的身体仍然需要被供应，不用惩罚它。",
+  "穿一件舒服的衣服": "让衣服配合身体，不让身体去忍衣服。",
+  "对镜子里的自己少批评一句": "先练习少攻击自己，安静看见也算。",
+  "做一件不用表现的小事": "不为了证明什么，只是恢复一点生活感。",
+  "整理一个小角落": "小范围变清爽一点，今天就够了。",
+  "和一个安全的人说句话": "联系一点点，不用解释太多。",
+  "给今天留 10 分钟空白": "什么都不产出，也是在恢复。",
+};
+
 function todayKey() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -166,28 +299,51 @@ function hashDate(date: string) {
   return date.split("").reduce((total, char) => total + char.charCodeAt(0), 0);
 }
 
+function normalizeTaskTitle(task: string) {
+  if (task === "记录睡眠时间") return "记录睡眠状态";
+  if (task === "感到心慌时坐下等 2 分钟") return "感到心慌时安抚自己";
+  if (task === "坐一次电梯/进一次商场") return "出门逛街/逛公园了";
+  return task;
+}
+
+function getDailyTaskPool() {
+  return Array.from(new Set([
+    ...planMonths.flatMap((month) => month.tasks),
+    ...extraDailyTaskCategories.flatMap((category) => category.tasks),
+  ]));
+}
+
+function getTaskStatusLabels(task: string): TaskStatusLabels {
+  const normalized = normalizeTaskTitle(task);
+  return taskStatusLabelMap[normalized] ?? statusLabels;
+}
+
 function getTaskLabel(task: string) {
-  if (task.includes("太阳")) return "晒太阳";
-  if (task.includes("散步") || task.includes("快走") || task.includes("轻快走")) return "活动";
-  if (task.includes("吃") || task.includes("主食") || task.includes("蛋白质")) return "吃饭";
-  if (task.includes("灾难")) return "记录";
-  if (task.includes("高速")) return "高速";
-  if (task.includes("开车")) return "路线";
-  if (task.includes("睡眠")) return "睡眠";
-  if (task.includes("膝盖") || task.includes("椭圆机") || task.includes("骑车") || task.includes("游泳")) return "替代";
+  const normalized = normalizeTaskTitle(task);
+  if (taskLabelMap[normalized]) return taskLabelMap[normalized];
+  if (normalized.includes("太阳")) return "晒太阳";
+  if (normalized.includes("散步") || normalized.includes("快走") || normalized.includes("轻快走")) return "活动";
+  if (normalized.includes("吃") || normalized.includes("主食") || normalized.includes("蛋白质")) return "吃饭";
+  if (normalized.includes("灾难")) return "记录";
+  if (normalized.includes("高速")) return "高速";
+  if (normalized.includes("开车")) return "路线";
+  if (normalized.includes("睡眠")) return "睡眠";
+  if (normalized.includes("膝盖") || normalized.includes("椭圆机") || normalized.includes("骑车") || normalized.includes("游泳")) return "替代";
   return "一点点";
 }
 
 function getTaskNote(task: string) {
-  if (task.includes("太阳")) return "站在窗边也可以，短短一会儿也算。";
-  if (task.includes("散步") || task.includes("快走") || task.includes("轻快走")) return "不用走很远，身体愿意动一点就很好。";
-  if (task.includes("三顿饭")) return "不是为了完美饮食，是让身体知道供应还在。";
-  if (task.includes("灾难")) return "不是复盘对错，只是给大脑留一张证据。";
-  if (isHighwayCommuteTask(task)) return "先走熟悉的高速路线，今天不用临时加难度。";
-  if (task.includes("开车")) return "固定路线就够了，不需要临时加难度。";
-  if (task.includes("睡眠")) return "只记录，不评价，先让身体被看见。";
-  if (task.includes("蛋白质") || task.includes("主食")) return "温和调整，不取消、不惩罚。";
-  if (task.includes("膝盖")) return "疼的时候换一种方式，照顾身体也算完成。";
+  const normalized = normalizeTaskTitle(task);
+  if (taskNoteMap[normalized]) return taskNoteMap[normalized];
+  if (normalized.includes("太阳")) return "站在窗边也可以，短短一会儿也算。";
+  if (normalized.includes("散步") || normalized.includes("快走") || normalized.includes("轻快走")) return "不用走很远，身体愿意动一点就很好。";
+  if (normalized.includes("三顿饭")) return "不是为了完美饮食，是让身体知道供应还在。";
+  if (normalized.includes("灾难")) return "不是复盘对错，只是给大脑留一张证据。";
+  if (isHighwayCommuteTask(normalized)) return "先走熟悉的高速路线，今天不用临时加难度。";
+  if (normalized.includes("开车")) return "固定路线就够了，不需要临时加难度。";
+  if (normalized.includes("睡眠")) return "只记录，不评价，先让身体被看见。";
+  if (normalized.includes("蛋白质") || normalized.includes("主食")) return "温和调整，不取消、不惩罚。";
+  if (normalized.includes("膝盖")) return "疼的时候换一种方式，照顾身体也算完成。";
   return "只做一点点，也可以被算作今天的恢复。";
 }
 
@@ -196,9 +352,9 @@ function isHighwayCommuteTask(task: string) {
 }
 
 function getDailyTasksForDate(date: string, savedTasks?: DailyTaskRecord[]) {
-  if (savedTasks?.length === 3) return savedTasks;
+  if (savedTasks?.length === 3) return savedTasks.map(normalizeDailyTask);
 
-  const taskPool = Array.from(new Set(planMonths.flatMap((month) => month.tasks)));
+  const taskPool = getDailyTaskPool();
   const seed = hashDate(date);
   const picked: string[] = [];
   let cursor = seed % taskPool.length;
@@ -215,22 +371,25 @@ function getDailyTasksForDate(date: string, savedTasks?: DailyTaskRecord[]) {
 function buildDailyTaskRecords(date: string, picked: string[]) {
   const tones: DailyTaskRecord["tone"][] = ["purple", "pink", "blue"];
 
-  return picked.map((title, index) => ({
+  return picked.map((rawTitle, index) => {
+    const title = normalizeTaskTitle(rawTitle);
+    return {
     id: `${date}-${index}-${title}`,
     label: getTaskLabel(title),
     title,
     note: getTaskNote(title),
     tone: tones[index],
     status: "not_started" as TaskStatus,
-  }));
+    };
+  });
 }
 
 function getRandomTaskForSlot(date: string, slotIndex: number, currentTasks: DailyTaskRecord[]) {
-  const taskPool = Array.from(new Set(planMonths.flatMap((month) => month.tasks)));
+  const taskPool = getDailyTaskPool();
   const currentTitles = currentTasks.map((task) => task.title);
   const candidates = taskPool.filter((task) => !currentTitles.includes(task));
   const pool = candidates.length > 0 ? candidates : taskPool;
-  const title = pool[Math.floor(Math.random() * pool.length)];
+  const title = normalizeTaskTitle(pool[Math.floor(Math.random() * pool.length)]);
   const tone = currentTasks[slotIndex]?.tone ?? (["purple", "pink", "blue"] as const)[slotIndex % 3];
 
   return {
@@ -240,6 +399,16 @@ function getRandomTaskForSlot(date: string, slotIndex: number, currentTasks: Dai
     note: getTaskNote(title),
     tone,
     status: "not_started" as TaskStatus,
+  };
+}
+
+function normalizeDailyTask(task: DailyTaskRecord): DailyTaskRecord {
+  const title = normalizeTaskTitle(task.title);
+  return {
+    ...task,
+    title,
+    label: getTaskLabel(title),
+    note: getTaskNote(title),
   };
 }
 
@@ -657,6 +826,7 @@ function HomePage({
       <div className="card-list">
         {draftTasks.map((task) => {
           const status = task.status;
+          const taskStatusLabels = getTaskStatusLabels(task.title);
           return (
             <article className={`soft-card task-card tone-${task.tone}`} key={task.id}>
               <div className="card-title-row">
@@ -679,14 +849,14 @@ function HomePage({
                 </button>
               </div>
               <div className="status-grid">
-                {(Object.keys(statusLabels) as TaskStatus[]).map((item) => (
+                {(Object.keys(taskStatusLabels) as TaskStatus[]).map((item) => (
                   <button
                     className={`status-button ${status === item ? "selected" : ""}`}
                     key={item}
                     type="button"
                     onClick={() => handleTaskChange(task.id, item)}
                   >
-                    {statusLabels[item]}
+                    {taskStatusLabels[item]}
                   </button>
                 ))}
               </div>
@@ -1216,7 +1386,7 @@ function DailyHistoryPage({ records }: { records: DailyRecoveryRecord[] }) {
                 {record.dailyTasks?.map((task) => (
                   <div className={`task-history-item tone-${task.tone}`} key={task.id}>
                     <span>{task.title}</span>
-                    <b>{statusLabels[task.status]}</b>
+                    <b>{getTaskStatusLabels(task.title)[task.status]}</b>
                   </div>
                 ))}
               </div>
@@ -1255,6 +1425,23 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [today, setToday] = useState<DailyRecoveryRecord>(() => getTodayRecord());
   const [records, setRecords] = useState(() => readRecords());
+  const tabScrollPositionsRef = useRef<Partial<Record<TabKey, number>>>({ home: 0 });
+
+  const switchTab = (tab: TabKey) => {
+    if (tab === activeTab) {
+      tabScrollPositionsRef.current[tab] = 0;
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      return;
+    }
+
+    tabScrollPositionsRef.current[activeTab] = window.scrollY;
+    const nextScrollTop = tabScrollPositionsRef.current[tab] ?? 0;
+
+    setActiveTab(tab);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: nextScrollTop, left: 0, behavior: "auto" });
+    });
+  };
 
   const refresh = () => {
     setToday(getTodayRecord());
@@ -1297,13 +1484,13 @@ export function App() {
   };
 
   return (
-    <Shell activeTab={activeTab} setActiveTab={setActiveTab}>
+    <Shell activeTab={activeTab} setActiveTab={switchTab}>
       {activeTab === "home" ? (
         <HomePage
           today={today}
           records={records}
           onSaveDailyTasks={handleSaveDailyTasks}
-          openDailyHistory={() => setActiveTab("dailyHistory")}
+          openDailyHistory={() => switchTab("dailyHistory")}
         />
       ) : null}
       {activeTab === "record" ? (
@@ -1311,7 +1498,7 @@ export function App() {
           today={today}
           onSave={handleSaveWorry}
           onDelete={handleDeleteWorry}
-          openEvidenceHistory={() => setActiveTab("evidenceHistory")}
+          openEvidenceHistory={() => switchTab("evidenceHistory")}
         />
       ) : null}
       {activeTab === "plan" ? <PlanPage records={records} /> : null}
