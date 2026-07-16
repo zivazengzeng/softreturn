@@ -13,7 +13,7 @@ import planCatSleep from "./plan-cat-sleep.png";
 import planCatTrust from "./plan-cat-trust.png";
 
 type TaskStatus = "not_started" | "partial" | "done";
-type TabKey = "home" | "record" | "plan" | "dailyHistory" | "evidenceHistory";
+type TabKey = "home" | "record" | "plan" | "dailyHistory" | "evidenceHistory" | "planHistory";
 type IconName =
   | "bath"
   | "bike"
@@ -76,6 +76,7 @@ type DailyTaskRecord = {
   note: string;
   tone: "purple" | "pink" | "blue";
   status: TaskStatus;
+  selected?: boolean;
 };
 
 type DailyRecoveryRecord = {
@@ -91,12 +92,17 @@ type DailyRecoveryRecord = {
 };
 
 type PlanGroupKey = "noise" | "trust" | "manage";
+type PlanHistoryRange = "day" | "week" | "month" | "halfYear" | "year";
 
 type MonthlyTaskStat = {
   title: string;
   label: string;
   count: number;
   icon: IconName;
+};
+
+type PlanHistoryTaskStat = MonthlyTaskStat & {
+  percentage: number;
 };
 
 type SpeechResult = {
@@ -248,6 +254,22 @@ const currentMonthPlanGroups: Array<{
   },
 ];
 
+const planHistoryRangeOptions: Array<{ key: PlanHistoryRange; label: string }> = [
+  { key: "day", label: "当日" },
+  { key: "week", label: "当周" },
+  { key: "month", label: "当月" },
+  { key: "halfYear", label: "半年" },
+  { key: "year", label: "一年" },
+];
+
+const PLAN_TASK_DISPLAY_LIMIT = 4;
+
+const countableNotStartedTasks = new Set([
+  "记录睡眠状态",
+  "不搜索身体症状",
+  "对镜子里的自己少批评一句",
+]);
+
 const taskPlanGroupMap: Record<string, PlanGroupKey> = {
   "晒太阳 10 分钟": "trust",
   "晚饭后散步 10-20 分钟": "trust",
@@ -290,23 +312,38 @@ const taskPlanGroupMap: Record<string, PlanGroupKey> = {
 
 const planGuidanceTaskPool: Record<PlanGroupKey, string[]> = {
   noise: [
+    "记录一个“没有发生的灾难”",
     "喝一杯温水",
     "做 3 次慢呼吸",
     "做一次护肤",
     "给肩颈放松 3 分钟",
+    "记录睡眠状态",
     "睡前放下手机 10 分钟",
+    "不搜索身体症状",
+    "记录一次身体误报",
     "给自己发一句安抚话",
     "今天允许自己慢一点",
   ],
   trust: [
     "晒太阳 10 分钟",
+    "晚饭后散步 10-20 分钟",
+    "每周 2 次轻快走 20-30 分钟",
+    "每周 1 次短途开车，固定路线",
+    "上班固定高速路线开车",
+    "感到心慌时安抚自己",
     "走到楼下再回来",
+    "开一小段熟悉路线",
     "出门逛街/逛公园了",
     "做一件不用表现的小事",
     "整理一个小角落",
     "和一个安全的人说句话",
+    "每周 3 次快走",
+    "膝盖疼时改为椭圆机/骑车/游泳",
   ],
   manage: [
+    "正常吃三顿饭",
+    "每餐先吃蛋白质",
+    "晚餐主食减半，但不取消",
     "正常吃一份主食",
     "吃一份蛋白质",
     "今天不称体重",
@@ -415,6 +452,68 @@ const taskNoteMap: Record<string, string> = {
 function todayKey() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function formatDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function parseDateKey(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function getStartOfToday(now = new Date()) {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function getStartOfWeek(now = new Date()) {
+  const start = getStartOfToday(now);
+  const day = start.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  start.setDate(start.getDate() - diff);
+  return start;
+}
+
+function getRangeStart(range: PlanHistoryRange, now = new Date()) {
+  if (range === "day") return getStartOfToday(now);
+  if (range === "week") return getStartOfWeek(now);
+  if (range === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
+  if (range === "halfYear") return new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  return new Date(now.getFullYear(), 0, 1);
+}
+
+function getTotalDaysInRange(range: PlanHistoryRange, now = new Date()) {
+  if (range === "day") return 1;
+  if (range === "week") return 7;
+
+  const start = getRangeStart(range, now);
+  const end = range === "halfYear"
+    ? new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    : range === "year"
+      ? new Date(now.getFullYear(), 11, 31)
+      : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(1, Math.floor((end.getTime() - start.getTime()) / millisecondsPerDay) + 1);
+}
+
+function getRangeLabel(range: PlanHistoryRange) {
+  const now = new Date();
+  if (range === "day") return formatDateKey(now);
+  if (range === "week") return `${formatDateKey(getStartOfWeek(now))} 起`;
+  if (range === "month") return `${now.getMonth() + 1}月`;
+  if (range === "halfYear") return "近半年";
+  return `${now.getFullYear()}年`;
+}
+
+function getCurrentMonthTitle() {
+  return `${new Date().getMonth() + 1}月计划`;
+}
+
+function getPreviousMonthLabel() {
+  const now = new Date();
+  const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${previous.getMonth() + 1}月`;
 }
 
 function hashDate(date: string) {
@@ -526,12 +625,13 @@ function buildDailyTaskRecords(date: string, picked: string[]) {
   return picked.map((rawTitle, index) => {
     const title = normalizeTaskTitle(rawTitle);
     return {
-    id: `${date}-${index}-${title}`,
-    label: getTaskLabel(title),
-    title,
-    note: getTaskNote(title),
-    tone: tones[index],
-    status: "not_started" as TaskStatus,
+      id: `${date}-${index}-${title}`,
+      label: getTaskLabel(title),
+      title,
+      note: getTaskNote(title),
+      tone: tones[index],
+      status: "not_started" as TaskStatus,
+      selected: false,
     };
   });
 }
@@ -551,6 +651,7 @@ function getRandomTaskForSlot(date: string, slotIndex: number, currentTasks: Dai
     note: getTaskNote(title),
     tone,
     status: "not_started" as TaskStatus,
+    selected: false,
   };
 }
 
@@ -561,6 +662,7 @@ function normalizeDailyTask(task: DailyTaskRecord): DailyTaskRecord {
     title,
     label: getTaskLabel(title),
     note: getTaskNote(title),
+    selected: task.selected ?? true,
   };
 }
 
@@ -589,6 +691,14 @@ function writeRecords(records: DailyRecoveryRecord[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 }
 
+function mergeRecordIntoList(records: DailyRecoveryRecord[], record: DailyRecoveryRecord) {
+  const nextRecords = records.some((item) => item.date === record.date)
+    ? records.map((item) => (item.date === record.date ? record : item))
+    : [record, ...records];
+
+  return nextRecords.sort((a, b) => b.date.localeCompare(a.date));
+}
+
 function getTodayRecord() {
   const date = todayKey();
   const record = readRecords().find((item) => item.date === date) ?? createEmptyRecord(date);
@@ -600,11 +710,8 @@ function getTodayRecord() {
 
 function upsertRecord(record: DailyRecoveryRecord) {
   const records = readRecords();
-  const nextRecords = records.some((item) => item.date === record.date)
-    ? records.map((item) => (item.date === record.date ? record : item))
-    : [record, ...records];
-
-  writeRecords(nextRecords.sort((a, b) => b.date.localeCompare(a.date)));
+  const nextRecords = mergeRecordIntoList(records, record);
+  writeRecords(nextRecords);
   return record;
 }
 
@@ -968,13 +1075,21 @@ function getTaskIcon(task: string): IconName {
   return "heart";
 }
 
+function isDailyTaskCounted(task: DailyTaskRecord) {
+  const title = normalizeTaskTitle(task.title);
+  const isSelected = task.selected ?? true;
+  if (!isSelected) return false;
+  if (task.status !== "not_started") return true;
+  return countableNotStartedTasks.has(title);
+}
+
 function getMonthRecordStats(records: DailyRecoveryRecord[]) {
   const now = new Date();
   const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const recordsThisMonth = records.filter((record) => record.date.startsWith(monthKey));
   const doneDays = recordsThisMonth.filter((record) => {
     return (
-      (record.dailyTasks?.some((task) => task.status !== "not_started") ?? false) ||
+      (record.dailyTasks?.some(isDailyTaskCounted) ?? false) ||
       Boolean(record.worryRecord)
     );
   }).length;
@@ -986,7 +1101,7 @@ function getMonthRecordStats(records: DailyRecoveryRecord[]) {
     const record = records.find((item) => item.date === key);
     if (!record) return { height: 8, hasValue: false };
 
-    const score = (record.dailyTasks ?? []).filter((task) => task.status !== "not_started").length + (record.worryRecord ? 1 : 0);
+    const score = (record.dailyTasks ?? []).filter(isDailyTaskCounted).length + (record.worryRecord ? 1 : 0);
 
     return {
       height: 8 + score * 10,
@@ -1003,7 +1118,7 @@ function getCurrentMonthRecords(records: DailyRecoveryRecord[]) {
 }
 
 function getPlanGuidanceTasks(groupKey: PlanGroupKey) {
-  return shuffleWithSeed(planGuidanceTaskPool[groupKey], `${getCurrentMonthKey()}-${groupKey}`).slice(0, 4);
+  return shuffleWithSeed(planGuidanceTaskPool[groupKey], `${getCurrentMonthKey()}-${groupKey}`).slice(0, PLAN_TASK_DISPLAY_LIMIT);
 }
 
 function collectCompletedTaskTitles(record: DailyRecoveryRecord) {
@@ -1011,12 +1126,16 @@ function collectCompletedTaskTitles(record: DailyRecoveryRecord) {
 
   (record.dailyTasks ?? []).forEach((task) => {
     const title = normalizeTaskTitle(task.title);
-    if (task.status !== "not_started") completedTitles.add(title);
+    if (isDailyTaskCounted(task)) completedTitles.add(title);
   });
 
-  if (record.sunlightStatus !== "not_started") completedTitles.add("晒太阳 10 分钟");
-  if (record.walkStatus !== "not_started") completedTitles.add("晚饭后散步 10-20 分钟");
-  if (record.recordStatus !== "not_started" || record.worryRecord) completedTitles.add("记录一个“没有发生的灾难”");
+  if (!record.dailyTasks?.length) {
+    if (record.sunlightStatus !== "not_started") completedTitles.add("晒太阳 10 分钟");
+    if (record.walkStatus !== "not_started") completedTitles.add("晚饭后散步 10-20 分钟");
+    if (record.recordStatus !== "not_started" || record.worryRecord) completedTitles.add("记录一个“没有发生的灾难”");
+  } else if (record.worryRecord) {
+    completedTitles.add("记录一个“没有发生的灾难”");
+  }
 
   return completedTitles;
 }
@@ -1031,7 +1150,7 @@ function getCurrentMonthTaskStats(records: DailyRecoveryRecord[]) {
   });
 
   return currentMonthPlanGroups.map((group) => {
-    const doneTasks: MonthlyTaskStat[] = Array.from(counts.entries())
+    const completedTasks: MonthlyTaskStat[] = Array.from(counts.entries())
       .filter(([title]) => getTaskPlanGroup(title) === group.key)
       .map(([title, count]) => ({
         title,
@@ -1040,7 +1159,7 @@ function getCurrentMonthTaskStats(records: DailyRecoveryRecord[]) {
         icon: getTaskIcon(title),
       }))
       .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title, "zh-Hans-CN"));
-    const displayedTitles = new Set(doneTasks.map((task) => task.title));
+    const displayedTitles = new Set(completedTasks.map((task) => task.title));
     const guidanceTasks: MonthlyTaskStat[] = getPlanGuidanceTasks(group.key)
       .filter((title) => !displayedTitles.has(normalizeTaskTitle(title)))
       .map((title) => {
@@ -1052,12 +1171,78 @@ function getCurrentMonthTaskStats(records: DailyRecoveryRecord[]) {
           icon: getTaskIcon(normalizedTitle),
         };
       });
+    const tasks = [...completedTasks, ...guidanceTasks].slice(0, PLAN_TASK_DISPLAY_LIMIT);
 
     return {
       ...group,
-      tasks: [...doneTasks, ...guidanceTasks].slice(0, 4),
+      tasks,
     };
   });
+}
+
+function recordHasRecoveryTrace(record: DailyRecoveryRecord) {
+  return collectCompletedTaskTitles(record).size > 0 || Boolean(record.worryRecord);
+}
+
+function getRecordsInPlanHistoryRange(records: DailyRecoveryRecord[], range: PlanHistoryRange) {
+  const start = getRangeStart(range);
+  const end = new Date();
+
+  return records.filter((record) => {
+    const date = parseDateKey(record.date);
+    return date >= start && date <= end;
+  });
+}
+
+function getPlanHistoryTaskStats(records: DailyRecoveryRecord[], range: PlanHistoryRange) {
+  const counts = new Map<string, number>();
+  const rangeRecords = getRecordsInPlanHistoryRange(records, range);
+  const totalDays = getTotalDaysInRange(range);
+
+  rangeRecords.forEach((record) => {
+    collectCompletedTaskTitles(record).forEach((title) => {
+      counts.set(title, (counts.get(title) ?? 0) + 1);
+    });
+  });
+
+  const tasks: PlanHistoryTaskStat[] = Array.from(counts.entries())
+    .map(([title, count]) => ({
+      title,
+      count,
+      label: getTaskLabel(title),
+      icon: getTaskIcon(title),
+      percentage: Math.min(100, Math.round((count / totalDays) * 100)),
+    }))
+    .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title, "zh-Hans-CN"));
+
+  return {
+    tasks,
+    totalRecords: rangeRecords.length,
+    activeDays: rangeRecords.filter(recordHasRecoveryTrace).length,
+    totalDays,
+  };
+}
+
+function getPreviousMonthSummary(records: DailyRecoveryRecord[]) {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const end = new Date(now.getFullYear(), now.getMonth(), 0);
+  const monthRecords = records.filter((record) => {
+    const date = parseDateKey(record.date);
+    return date >= start && date <= end;
+  });
+  const taskCounts = new Map<string, number>();
+
+  monthRecords.forEach((record) => {
+    collectCompletedTaskTitles(record).forEach((title) => {
+      taskCounts.set(title, (taskCounts.get(title) ?? 0) + 1);
+    });
+  });
+
+  return {
+    activeDays: monthRecords.filter(recordHasRecoveryTrace).length,
+    taskKinds: taskCounts.size,
+  };
 }
 
 function getCurrentMonthTaskCompletionCount(task: string, records: DailyRecoveryRecord[]) {
@@ -1130,7 +1315,7 @@ function Shell({
       <nav className="tabs">
         <div className="tabs-inner">
           {tabs.map(({ key, label }) => {
-            const selected = activeTab === key;
+            const selected = activeTab === key || (key === "plan" && activeTab === "planHistory");
             return (
             <button
               className={`tab-button ${selected ? "selected" : ""}`}
@@ -1191,7 +1376,7 @@ function HomePage({
   }, [today.date]);
 
   const handleTaskChange = (taskId: string, status: TaskStatus) => {
-    setDraftTasks((tasks) => tasks.map((task) => (task.id === taskId ? { ...task, status } : task)));
+    setDraftTasks((tasks) => tasks.map((task) => (task.id === taskId ? { ...task, status, selected: true } : task)));
   };
 
   const handleRefreshTask = (taskId: string) => {
@@ -1205,7 +1390,7 @@ function HomePage({
   };
 
   const handleSaveTasks = () => {
-    onSaveDailyTasks(draftTasks);
+    onSaveDailyTasks(draftTasks.map((task) => ({ ...task, selected: task.selected === true })));
     setDraftTasks(getDefaultDailyTasksForDate(today.date));
     setSaveAnimationKey((key) => key + 1);
   };
@@ -1219,6 +1404,7 @@ function HomePage({
       <div className="card-list">
         {draftTasks.map((task) => {
           const status = task.status;
+          const hasSelection = task.selected === true;
           const taskStatusLabels = getTaskStatusLabels(task.title);
           return (
             <article className={`soft-card task-card tone-${task.tone}`} key={task.id}>
@@ -1244,7 +1430,7 @@ function HomePage({
               <div className="status-grid">
                 {(Object.keys(taskStatusLabels) as TaskStatus[]).map((item) => (
                   <button
-                    className={`status-button ${status === item ? "selected" : ""}`}
+                    className={`status-button ${hasSelection && status === item ? "selected" : ""}`}
                     key={item}
                     type="button"
                     onClick={() => handleTaskChange(task.id, item)}
@@ -1713,13 +1899,19 @@ function EvidenceCard({ record, onDelete }: { record: WorryRecord; onDelete: () 
   );
 }
 
-function PlanPage({ records }: { records: DailyRecoveryRecord[] }) {
+function PlanPage({
+  records,
+  openPlanHistory,
+}: {
+  records: DailyRecoveryRecord[];
+  openPlanHistory: () => void;
+}) {
   const stats = getMonthRecordStats(records);
   const monthlyGroups = getCurrentMonthTaskStats(records);
 
   return (
     <section>
-      <PageHeader title="当月计划" subtitle="这里按这个月你真实做过的事来排，不是要你补作业。" />
+      <PageHeader title={getCurrentMonthTitle()} subtitle="这里按这个月你真实做过的事来排，不是要你补作业。" />
       <div className="card-list">
         {monthlyGroups.map((group) => (
           <article className="soft-card plan-card" key={group.key}>
@@ -1760,6 +1952,64 @@ function PlanPage({ records }: { records: DailyRecoveryRecord[] }) {
           </article>
         ))}
       </div>
+      <button className="plan-history-entry" type="button" onClick={openPlanHistory}>
+        <span>
+          <b>历史计划</b>
+          <small>看看之前的恢复任务，哪些已经在慢慢变熟。</small>
+        </span>
+        <span aria-hidden="true">›</span>
+      </button>
+    </section>
+  );
+}
+
+function PlanHistoryPage({ records }: { records: DailyRecoveryRecord[] }) {
+  const [range, setRange] = useState<PlanHistoryRange>("month");
+  const stats = getPlanHistoryTaskStats(records, range);
+
+  return (
+    <section>
+      <PageHeader title="历史计划" subtitle="按任务看见恢复的痕迹，不分大类，也不用补齐任何一天。" />
+      <div className="history-tabs" role="tablist" aria-label="历史计划时间维度">
+        {planHistoryRangeOptions.map((option) => (
+          <button
+            className={range === option.key ? "selected" : ""}
+            key={option.key}
+            type="button"
+            role="tab"
+            aria-selected={range === option.key}
+            onClick={() => setRange(option.key)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <article className="soft-card history-chart-card">
+        <div className="history-chart-head">
+          <div>
+            <h2>{getRangeLabel(range)}任务分布</h2>
+            <p>{stats.activeDays} 天有恢复记录，共记录 {stats.tasks.reduce((total, task) => total + task.count, 0)} 次任务。</p>
+          </div>
+        </div>
+        {stats.tasks.length > 0 ? (
+          <div className="history-task-chart">
+            {stats.tasks.map((task) => (
+              <div className="history-task-row" key={task.title}>
+                <div className="history-task-title">
+                  <RoundIcon name={task.icon} size={18} />
+                  <span>{task.title}</span>
+                  <b>{task.count}/{stats.totalDays}</b>
+                </div>
+                <div className="history-bar-track" aria-hidden="true">
+                  <span style={{ width: `${task.percentage}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="history-empty">这个时间范围里还没有任务记录。空着也没关系，恢复本来就会有空白。</div>
+        )}
+      </article>
     </section>
   );
 }
@@ -1800,7 +2050,7 @@ function DailyHistoryPage({
                 {record.dailyTasks?.map((task) => (
                   <div className={`task-history-item tone-${task.tone}`} key={task.id}>
                     <span>{task.title}</span>
-                    <b>{getTaskStatusLabels(task.title)[task.status]}</b>
+                    <b>{task.selected === false ? "今天没选择" : getTaskStatusLabels(task.title)[task.status]}</b>
                   </div>
                 ))}
               </div>
@@ -1868,20 +2118,22 @@ export function App() {
     const walkTask = tasks.find((task) => task.title.includes("散步") || task.title.includes("快走") || task.title.includes("轻快走"));
     const evidenceTask = tasks.find((task) => task.title.includes("灾难"));
 
-    setToday(upsertRecord({
+    const savedRecord = upsertRecord({
       ...current,
       sunlightStatus: sunlightTask?.status ?? current.sunlightStatus,
       walkStatus: walkTask?.status ?? current.walkStatus,
       recordStatus: evidenceTask?.status ?? current.recordStatus,
       dailyTasks: tasks,
       dailyTasksSavedAt: new Date().toISOString(),
-    }));
-    setRecords(readRecords());
+    });
+
+    setToday(savedRecord);
+    setRecords((currentRecords) => mergeRecordIntoList(currentRecords, savedRecord));
   };
 
   const handleSaveWorry = (record: WorryRecord) => {
     const current = getTodayRecord();
-    upsertRecord({
+    const savedRecord = upsertRecord({
       ...current,
       recordStatus: "done",
       dailyTasks: current.dailyTasks?.map((task) => (
@@ -1889,7 +2141,9 @@ export function App() {
       )),
       worryRecord: record,
     });
-    refresh();
+
+    setToday(savedRecord);
+    setRecords((currentRecords) => mergeRecordIntoList(currentRecords, savedRecord));
   };
 
   const handleDeleteWorry = () => {
@@ -1920,7 +2174,10 @@ export function App() {
           openEvidenceHistory={() => switchTab("evidenceHistory")}
         />
       ) : null}
-      {activeTab === "plan" ? <PlanPage records={records} /> : null}
+      {activeTab === "plan" ? (
+        <PlanPage records={records} openPlanHistory={() => switchTab("planHistory")} />
+      ) : null}
+      {activeTab === "planHistory" ? <PlanHistoryPage records={records} /> : null}
       {activeTab === "dailyHistory" ? (
         <DailyHistoryPage records={records} onDeleteToday={handleDeleteTodayDailyTasks} />
       ) : null}
