@@ -15,23 +15,42 @@ import planCatTrust from "./plan-cat-trust.png";
 type TaskStatus = "not_started" | "partial" | "done";
 type TabKey = "home" | "record" | "plan" | "dailyHistory" | "evidenceHistory";
 type IconName =
+  | "bath"
   | "bike"
   | "book"
+  | "bowl"
+  | "breath"
+  | "broom"
   | "calendar"
+  | "calm"
   | "car"
+  | "chat"
+  | "clothes"
   | "footprints"
   | "heart"
   | "home"
+  | "leaf"
+  | "map"
   | "mic"
+  | "mirror"
   | "moon"
   | "notebook"
+  | "park"
+  | "phone"
   | "refresh"
   | "save"
+  | "scale"
+  | "search"
+  | "shoulder"
+  | "sleep"
   | "soup"
   | "sprout"
+  | "stairs"
   | "sun"
   | "utensils"
-  | "waves";
+  | "water"
+  | "waves"
+  | "window";
 
 type ActualResult =
   | "没发生"
@@ -69,6 +88,15 @@ type DailyRecoveryRecord = {
   energyLevel?: number;
   anxietyLevel?: number;
   worryRecord?: WorryRecord;
+};
+
+type PlanGroupKey = "noise" | "trust" | "manage";
+
+type MonthlyTaskStat = {
+  title: string;
+  label: string;
+  count: number;
+  icon: IconName;
 };
 
 type SpeechResult = {
@@ -194,6 +222,100 @@ const extraDailyTaskCategories = [
   },
 ] as const;
 
+const currentMonthPlanGroups: Array<{
+  key: PlanGroupKey;
+  title: string;
+  tip: string;
+  cat: "sleep" | "trust" | "move";
+}> = [
+  {
+    key: "noise",
+    title: "让身体降噪",
+    tip: "本月先看见身体被照顾过的地方，不急着加难度。",
+    cat: "sleep",
+  },
+  {
+    key: "trust",
+    title: "恢复身体信任",
+    tip: "这里放的是你和外界、心跳、行动慢慢重新熟悉的证据。",
+    cat: "trust",
+  },
+  {
+    key: "manage",
+    title: "温和管理",
+    tip: "体重、饮食、活动都只做温和调整，不用惩罚身体。",
+    cat: "move",
+  },
+];
+
+const taskPlanGroupMap: Record<string, PlanGroupKey> = {
+  "晒太阳 10 分钟": "trust",
+  "晚饭后散步 10-20 分钟": "trust",
+  "正常吃三顿饭": "manage",
+  "记录一个“没有发生的灾难”": "noise",
+  "喝一杯温水": "noise",
+  "做 3 次慢呼吸": "noise",
+  "洗个热水澡/泡脚": "noise",
+  "做一次护肤": "noise",
+  "给肩颈放松 3 分钟": "noise",
+  "记录睡眠状态": "noise",
+  "睡前放下手机 10 分钟": "noise",
+  "早点躺下但不强迫睡着": "noise",
+  "不搜索身体症状": "noise",
+  "记录一次身体误报": "noise",
+  "给自己发一句安抚话": "noise",
+  "今天允许自己慢一点": "noise",
+  "每周 2 次轻快走 20-30 分钟": "trust",
+  "每周 1 次短途开车，固定路线": "trust",
+  "上班固定高速路线开车": "trust",
+  "感到心慌时安抚自己": "trust",
+  "走到楼下再回来": "trust",
+  "开一小段熟悉路线": "trust",
+  "出门逛街/逛公园了": "trust",
+  "做一件不用表现的小事": "trust",
+  "整理一个小角落": "trust",
+  "和一个安全的人说句话": "trust",
+  "给今天留 10 分钟空白": "trust",
+  "每餐先吃蛋白质": "manage",
+  "晚餐主食减半，但不取消": "manage",
+  "每周 3 次快走": "trust",
+  "膝盖疼时改为椭圆机/骑车/游泳": "trust",
+  "正常吃一份主食": "manage",
+  "吃一份蛋白质": "manage",
+  "今天不称体重": "manage",
+  "不因为体重少吃一顿": "manage",
+  "穿一件舒服的衣服": "manage",
+  "对镜子里的自己少批评一句": "manage",
+};
+
+const planGuidanceTaskPool: Record<PlanGroupKey, string[]> = {
+  noise: [
+    "喝一杯温水",
+    "做 3 次慢呼吸",
+    "做一次护肤",
+    "给肩颈放松 3 分钟",
+    "睡前放下手机 10 分钟",
+    "给自己发一句安抚话",
+    "今天允许自己慢一点",
+  ],
+  trust: [
+    "晒太阳 10 分钟",
+    "走到楼下再回来",
+    "出门逛街/逛公园了",
+    "做一件不用表现的小事",
+    "整理一个小角落",
+    "和一个安全的人说句话",
+  ],
+  manage: [
+    "正常吃一份主食",
+    "吃一份蛋白质",
+    "今天不称体重",
+    "穿一件舒服的衣服",
+    "对镜子里的自己少批评一句",
+    "不因为体重少吃一顿",
+  ],
+};
+
 const taskStatusLabelMap: Record<string, TaskStatusLabels> = {
   "晒太阳 10 分钟": { not_started: "没晒到", partial: "晒了一小会儿", done: "晒够 10 分钟" },
   "晚饭后散步 10-20 分钟": { not_started: "没出门", partial: "走了一小段", done: "走够 20 分钟" },
@@ -299,6 +421,24 @@ function hashDate(date: string) {
   return date.split("").reduce((total, char) => total + char.charCodeAt(0), 0);
 }
 
+function getCurrentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function shuffleWithSeed<T>(items: T[], seedText: string) {
+  const shuffled = [...items];
+  let seed = hashDate(seedText) || 1;
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    const swapIndex = seed % (index + 1);
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+
+  return shuffled;
+}
+
 function normalizeTaskTitle(task: string) {
   if (task === "记录睡眠时间") return "记录睡眠状态";
   if (task === "感到心慌时坐下等 2 分钟") return "感到心慌时安抚自己";
@@ -316,6 +456,14 @@ function getDailyTaskPool() {
 function getTaskStatusLabels(task: string): TaskStatusLabels {
   const normalized = normalizeTaskTitle(task);
   return taskStatusLabelMap[normalized] ?? statusLabels;
+}
+
+function getTaskPlanGroup(task: string): PlanGroupKey {
+  const normalized = normalizeTaskTitle(task);
+  if (taskPlanGroupMap[normalized]) return taskPlanGroupMap[normalized];
+  if (normalized.includes("开车") || normalized.includes("高速") || normalized.includes("路线")) return "trust";
+  if (normalized.includes("体重") || normalized.includes("主食") || normalized.includes("蛋白质")) return "manage";
+  return "noise";
 }
 
 function getTaskLabel(task: string) {
@@ -354,6 +502,10 @@ function isHighwayCommuteTask(task: string) {
 function getDailyTasksForDate(date: string, savedTasks?: DailyTaskRecord[]) {
   if (savedTasks?.length === 3) return savedTasks.map(normalizeDailyTask);
 
+  return getDefaultDailyTasksForDate(date);
+}
+
+function getDefaultDailyTasksForDate(date: string) {
   const taskPool = getDailyTaskPool();
   const seed = hashDate(date);
   const picked: string[] = [];
@@ -464,6 +616,20 @@ function deleteWorryRecord() {
   return nextRecord;
 }
 
+function deleteTodayDailyTasksRecord() {
+  const record = getTodayRecord();
+  const nextRecord: DailyRecoveryRecord = {
+    ...record,
+    sunlightStatus: "not_started",
+    walkStatus: "not_started",
+    recordStatus: record.worryRecord ? record.recordStatus : "not_started",
+  };
+  delete nextRecord.dailyTasks;
+  delete nextRecord.dailyTasksSavedAt;
+  upsertRecord(nextRecord);
+  return nextRecord;
+}
+
 function getRecordTaskStatus(record: DailyRecoveryRecord, task: string) {
   const dynamicTask = record.dailyTasks?.find((item) => item.title === task);
   if (dynamicTask) return dynamicTask.status;
@@ -538,6 +704,45 @@ function RoundIcon({
         <path d="M7 15h2M15 8h2" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
       </>
     ),
+    water: (
+      <>
+        <path {...common} d="M12 3s6 6.2 6 11a6 6 0 0 1-12 0c0-4.8 6-11 6-11Z" />
+        <path d="M9 15a3 3 0 0 0 3 3" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    breath: (
+      <>
+        <path {...common} d="M4 8h8a3 3 0 1 0-3-3" />
+        <path {...common} d="M4 13h13a3 3 0 1 1-3 3" />
+        <path {...common} d="M4 18h6" />
+      </>
+    ),
+    bath: (
+      <>
+        <path {...common} d="M5 12h14v2a6 6 0 0 1-6 6h-2a6 6 0 0 1-6-6Z" />
+        <path {...common} d="M7 12V7a3 3 0 0 1 6 0v1" />
+        <path d="M8 20v1M16 20v1" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    leaf: (
+      <>
+        <path {...common} d="M5 19c9 0 14-5 14-14-9 0-14 5-14 14Z" />
+        <path d="M5 19 16 8" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    shoulder: (
+      <>
+        <path {...common} d="M8 7a4 4 0 0 1 8 0v2a4 4 0 0 1-8 0Z" />
+        <path {...common} d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2" />
+        <path d="M7 16c2 2 8 2 10 0" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    calm: (
+      <>
+        <path {...common} d="M12 4a8 8 0 0 1 8 8c0 5-8 9-8 9s-8-4-8-9a8 8 0 0 1 8-8Z" />
+        <path d="M8 12h8M9 15c2 2 4 2 6 0" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
     utensils: (
       <>
         <path {...common} d="M7 3v8M4 3v8M10 3v8M4 8h6M7 11v10" />
@@ -567,6 +772,26 @@ function RoundIcon({
         <path {...common} d="M17 18a8 8 0 0 1-9.5-9.5A7 7 0 1 0 17 18Z" />
       </>
     ),
+    sleep: (
+      <>
+        <path {...common} d="M5 16V8a3 3 0 0 1 3-3h3a3 3 0 0 1 3 3v8" />
+        <path {...common} d="M3 16h18v4M6 20v-2M18 20v-2" />
+        <path d="M8 9h4" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    phone: (
+      <>
+        <rect {...common} x="7" y="3" width="10" height="18" rx="4" />
+        <path d="M10 6h4M11 17h2" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    bowl: (
+      <>
+        <path {...common} d="M5 11h14v2a6 6 0 0 1-6 6h-2a6 6 0 0 1-6-6Z" />
+        <path {...common} d="M8 8c2-2 6-2 8 0" />
+        <path d="M7 19h10" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
     soup: (
       <>
         <path {...common} d="M5 11h14v3a6 6 0 0 1-6 6h-2a6 6 0 0 1-6-6Z" />
@@ -585,6 +810,68 @@ function RoundIcon({
         <rect {...common} x="4" y="13" width="6" height="6" rx="4" />
         <rect {...common} x="14" y="13" width="6" height="6" rx="4" />
         <path d="M7 16h5l3-6h-3M12 16l-3-6h3" fill="none" stroke={inner} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      </>
+    ),
+    stairs: (
+      <>
+        <path {...common} d="M4 19h5v-4h5v-4h6" />
+        <path {...common} d="M6 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
+        <path {...common} d="M6 10v5" />
+      </>
+    ),
+    search: (
+      <>
+        <rect {...common} x="4" y="5" width="13" height="13" rx="4" />
+        <path d="m15 16 5 5M8 9h5M8 13h3" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    chat: (
+      <>
+        <path {...common} d="M5 5h14v10H9l-4 4Z" />
+        <path d="M9 9h6M9 12h4" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    map: (
+      <>
+        <path {...common} d="M5 5 11 3l7 2v14l-7-2-6 2Z" />
+        <path d="M11 3v14M18 5l-7 12" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    park: (
+      <>
+        <path {...common} d="M12 4 5 13h14Z" />
+        <path {...common} d="M12 13v8" />
+        <path d="M8 18h8" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    scale: (
+      <>
+        <rect {...common} x="5" y="4" width="14" height="16" rx="4" />
+        <path d="M9 9a3 3 0 0 1 6 0M12 9l2-2" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    clothes: (
+      <>
+        <path {...common} d="M8 4 5 6l-2 5 4 2v7h10v-7l4-2-2-5-3-2a4 4 0 0 1-8 0Z" />
+      </>
+    ),
+    mirror: (
+      <>
+        <rect {...common} x="7" y="3" width="10" height="14" rx="5" />
+        <path {...common} d="M12 17v4M9 21h6" />
+      </>
+    ),
+    broom: (
+      <>
+        <path {...common} d="M14 4 5 13" />
+        <path {...common} d="M4 15 9 20l4-4-5-5Z" />
+        <path d="M5 18h6" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    window: (
+      <>
+        <rect {...common} x="4" y="4" width="16" height="16" rx="4" />
+        <path d="M12 4v16M4 12h16" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
       </>
     ),
     waves: (
@@ -626,16 +913,58 @@ function TabIcon({ tab, selected }: { tab: "home" | "record" | "plan"; selected:
 }
 
 function getTaskIcon(task: string): IconName {
-  if (task.includes("太阳")) return "sun";
-  if (task.includes("散步") || task.includes("快走") || task.includes("轻快走")) return "footprints";
-  if (task.includes("三顿饭")) return "utensils";
-  if (task.includes("灾难")) return "notebook";
-  if (task.includes("开车")) return "car";
-  if (task.includes("睡眠")) return "moon";
-  if (task.includes("蛋白质")) return "soup";
-  if (task.includes("主食")) return "sprout";
-  if (task.includes("椭圆机") || task.includes("骑车")) return "bike";
-  if (task.includes("游泳")) return "waves";
+  const normalized = normalizeTaskTitle(task);
+  const iconMap: Record<string, IconName> = {
+    "晒太阳 10 分钟": "sun",
+    "晚饭后散步 10-20 分钟": "footprints",
+    "正常吃三顿饭": "utensils",
+    "记录一个“没有发生的灾难”": "notebook",
+    "每周 2 次轻快走 20-30 分钟": "footprints",
+    "每周 1 次短途开车，固定路线": "car",
+    "上班固定高速路线开车": "map",
+    "记录睡眠状态": "moon",
+    "每餐先吃蛋白质": "soup",
+    "晚餐主食减半，但不取消": "bowl",
+    "每周 3 次快走": "footprints",
+    "膝盖疼时改为椭圆机/骑车/游泳": "bike",
+    "喝一杯温水": "water",
+    "做 3 次慢呼吸": "breath",
+    "洗个热水澡/泡脚": "bath",
+    "做一次护肤": "leaf",
+    "给肩颈放松 3 分钟": "shoulder",
+    "感到心慌时安抚自己": "calm",
+    "睡前放下手机 10 分钟": "phone",
+    "早点躺下但不强迫睡着": "sleep",
+    "正常吃一份主食": "bowl",
+    "吃一份蛋白质": "soup",
+    "走到楼下再回来": "stairs",
+    "不搜索身体症状": "search",
+    "记录一次身体误报": "notebook",
+    "给自己发一句安抚话": "chat",
+    "今天允许自己慢一点": "heart",
+    "开一小段熟悉路线": "map",
+    "出门逛街/逛公园了": "park",
+    "今天不称体重": "scale",
+    "不因为体重少吃一顿": "utensils",
+    "穿一件舒服的衣服": "clothes",
+    "对镜子里的自己少批评一句": "mirror",
+    "做一件不用表现的小事": "book",
+    "整理一个小角落": "broom",
+    "和一个安全的人说句话": "chat",
+    "给今天留 10 分钟空白": "window",
+  };
+
+  if (iconMap[normalized]) return iconMap[normalized];
+  if (normalized.includes("太阳")) return "sun";
+  if (normalized.includes("散步") || normalized.includes("快走") || normalized.includes("轻快走")) return "footprints";
+  if (normalized.includes("三顿饭")) return "utensils";
+  if (normalized.includes("灾难")) return "notebook";
+  if (normalized.includes("开车")) return "car";
+  if (normalized.includes("睡眠")) return "moon";
+  if (normalized.includes("蛋白质")) return "soup";
+  if (normalized.includes("主食")) return "bowl";
+  if (normalized.includes("椭圆机") || normalized.includes("骑车")) return "bike";
+  if (normalized.includes("游泳")) return "waves";
   return "heart";
 }
 
@@ -666,6 +995,69 @@ function getMonthRecordStats(records: DailyRecoveryRecord[]) {
   });
 
   return { doneDays, bars };
+}
+
+function getCurrentMonthRecords(records: DailyRecoveryRecord[]) {
+  const monthKey = getCurrentMonthKey();
+  return records.filter((record) => record.date.startsWith(monthKey));
+}
+
+function getPlanGuidanceTasks(groupKey: PlanGroupKey) {
+  return shuffleWithSeed(planGuidanceTaskPool[groupKey], `${getCurrentMonthKey()}-${groupKey}`).slice(0, 4);
+}
+
+function collectCompletedTaskTitles(record: DailyRecoveryRecord) {
+  const completedTitles = new Set<string>();
+
+  (record.dailyTasks ?? []).forEach((task) => {
+    const title = normalizeTaskTitle(task.title);
+    if (task.status !== "not_started") completedTitles.add(title);
+  });
+
+  if (record.sunlightStatus !== "not_started") completedTitles.add("晒太阳 10 分钟");
+  if (record.walkStatus !== "not_started") completedTitles.add("晚饭后散步 10-20 分钟");
+  if (record.recordStatus !== "not_started" || record.worryRecord) completedTitles.add("记录一个“没有发生的灾难”");
+
+  return completedTitles;
+}
+
+function getCurrentMonthTaskStats(records: DailyRecoveryRecord[]) {
+  const counts = new Map<string, number>();
+
+  getCurrentMonthRecords(records).forEach((record) => {
+    collectCompletedTaskTitles(record).forEach((title) => {
+      counts.set(title, (counts.get(title) ?? 0) + 1);
+    });
+  });
+
+  return currentMonthPlanGroups.map((group) => {
+    const doneTasks: MonthlyTaskStat[] = Array.from(counts.entries())
+      .filter(([title]) => getTaskPlanGroup(title) === group.key)
+      .map(([title, count]) => ({
+        title,
+        count,
+        label: getTaskLabel(title),
+        icon: getTaskIcon(title),
+      }))
+      .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title, "zh-Hans-CN"));
+    const displayedTitles = new Set(doneTasks.map((task) => task.title));
+    const guidanceTasks: MonthlyTaskStat[] = getPlanGuidanceTasks(group.key)
+      .filter((title) => !displayedTitles.has(normalizeTaskTitle(title)))
+      .map((title) => {
+        const normalizedTitle = normalizeTaskTitle(title);
+        return {
+          title: normalizedTitle,
+          count: 0,
+          label: getTaskLabel(normalizedTitle),
+          icon: getTaskIcon(normalizedTitle),
+        };
+      });
+
+    return {
+      ...group,
+      tasks: [...doneTasks, ...guidanceTasks].slice(0, 4),
+    };
+  });
 }
 
 function getCurrentMonthTaskCompletionCount(task: string, records: DailyRecoveryRecord[]) {
@@ -791,12 +1183,12 @@ function HomePage({
   onSaveDailyTasks: (tasks: DailyTaskRecord[]) => void;
   openDailyHistory: () => void;
 }) {
-  const [draftTasks, setDraftTasks] = useState(() => getDailyTasksForDate(today.date, today.dailyTasks));
+  const [draftTasks, setDraftTasks] = useState(() => getDefaultDailyTasksForDate(today.date));
   const [saveAnimationKey, setSaveAnimationKey] = useState(0);
 
   useEffect(() => {
-    setDraftTasks(getDailyTasksForDate(today.date, today.dailyTasks));
-  }, [today]);
+    setDraftTasks(getDefaultDailyTasksForDate(today.date));
+  }, [today.date]);
 
   const handleTaskChange = (taskId: string, status: TaskStatus) => {
     setDraftTasks((tasks) => tasks.map((task) => (task.id === taskId ? { ...task, status } : task)));
@@ -814,6 +1206,7 @@ function HomePage({
 
   const handleSaveTasks = () => {
     onSaveDailyTasks(draftTasks);
+    setDraftTasks(getDefaultDailyTasksForDate(today.date));
     setSaveAnimationKey((key) => key + 1);
   };
 
@@ -1322,29 +1715,30 @@ function EvidenceCard({ record, onDelete }: { record: WorryRecord; onDelete: () 
 
 function PlanPage({ records }: { records: DailyRecoveryRecord[] }) {
   const stats = getMonthRecordStats(records);
+  const monthlyGroups = getCurrentMonthTaskStats(records);
 
   return (
     <section>
-      <PageHeader title="3个月计划" subtitle="计划只是扶手，不是考卷。每个月只要朝身体多靠近一点点。" />
+      <PageHeader title="当月计划" subtitle="这里按这个月你真实做过的事来排，不是要你补作业。" />
       <div className="card-list">
-        {planMonths.map((month, index) => (
-          <article className="soft-card plan-card" key={month.title}>
-            <PlanCat variant={month.cat} />
+        {monthlyGroups.map((group) => (
+          <article className="soft-card plan-card" key={group.key}>
+            <PlanCat variant={group.cat} />
             <div className="plan-copy">
               <div className="plan-title-stack">
-                <h2>{getPlanTaskTitle(month.title)}</h2>
+                <h2>{group.title}</h2>
               </div>
-              <p className="plan-subtitle">{month.tip}</p>
+              <p className="plan-subtitle">{group.tip}</p>
             </div>
-            <h3>需做的任务</h3>
+            <h3>本月任务</h3>
             <ul className="plan-task-list">
-              {month.tasks.map((task) => (
-                <li key={task}>
+              {group.tasks.map((task) => (
+                <li key={task.title}>
                   <span className="plan-task-main">
-                    <RoundIcon name={getTaskIcon(task)} size={17} />
-                    <span>{task}</span>
+                    <RoundIcon name={task.icon} size={17} />
+                    <span>{task.title}</span>
                   </span>
-                  <b>{getTaskCompletionCount(task, records)}</b>
+                  <b>{task.count}</b>
                 </li>
               ))}
             </ul>
@@ -1356,7 +1750,7 @@ function PlanPage({ records }: { records: DailyRecoveryRecord[] }) {
               <div className="chart-bars">
                 {stats.bars.map((bar, barIndex) => (
                   <span
-                    key={`${month.title}-${barIndex}`}
+                    key={`${group.key}-${barIndex}`}
                     className={bar.hasValue ? "has-value" : ""}
                     style={{ height: `${bar.height}px` }}
                   />
@@ -1370,8 +1764,21 @@ function PlanPage({ records }: { records: DailyRecoveryRecord[] }) {
   );
 }
 
-function DailyHistoryPage({ records }: { records: DailyRecoveryRecord[] }) {
+function DailyHistoryPage({
+  records,
+  onDeleteToday,
+}: {
+  records: DailyRecoveryRecord[];
+  onDeleteToday: () => void;
+}) {
   const items = records.filter((record) => record.dailyTasksSavedAt && record.dailyTasks?.length);
+  const today = todayKey();
+
+  const handleDeleteToday = () => {
+    if (!window.confirm("确定删除今天这张每日三件事卡片吗？删除后，今天保存的三个选项会被清空。")) return;
+    onDeleteToday();
+  };
+
   return (
     <section>
       <PageHeader title="每日三件事" subtitle="这里记录的是你每天给身体留过的一点空间，不需要每天一样。" />
@@ -1381,7 +1788,14 @@ function DailyHistoryPage({ records }: { records: DailyRecoveryRecord[] }) {
         <div className="card-list">
           {items.map((record) => (
             <article className="soft-card task-history-card" key={record.date}>
-              <time>{record.date}</time>
+              <div className="task-history-title-row">
+                <time>{record.date}</time>
+                {record.date === today ? (
+                  <button className="delete-button" type="button" onClick={handleDeleteToday}>
+                    删除
+                  </button>
+                ) : null}
+              </div>
               <div className="task-history-list">
                 {record.dailyTasks?.map((task) => (
                   <div className={`task-history-item tone-${task.tone}`} key={task.id}>
@@ -1483,6 +1897,11 @@ export function App() {
     refresh();
   };
 
+  const handleDeleteTodayDailyTasks = () => {
+    deleteTodayDailyTasksRecord();
+    refresh();
+  };
+
   return (
     <Shell activeTab={activeTab} setActiveTab={switchTab}>
       {activeTab === "home" ? (
@@ -1502,7 +1921,9 @@ export function App() {
         />
       ) : null}
       {activeTab === "plan" ? <PlanPage records={records} /> : null}
-      {activeTab === "dailyHistory" ? <DailyHistoryPage records={records} /> : null}
+      {activeTab === "dailyHistory" ? (
+        <DailyHistoryPage records={records} onDeleteToday={handleDeleteTodayDailyTasks} />
+      ) : null}
       {activeTab === "evidenceHistory" ? <EvidenceHistoryPage records={records} /> : null}
     </Shell>
   );
