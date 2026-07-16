@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode, Ref } from "react";
+import type { PointerEvent, ReactNode, Ref } from "react";
 import tabPlanIcon from "./assets/icons/Lui-icon-date.svg?raw";
 import tabPlanIconSolid from "./assets/icons/Lui-icon-date-solid.svg?raw";
 import tabRecordIcon from "./assets/icons/Lui-icon-help-manual.svg?raw";
@@ -38,6 +38,8 @@ type ActualResult =
   | "发生了一点，但我处理了"
   | "发生了，但没有我想象中严重"
   | "今天还没法判断";
+
+type VoiceTarget = "worry" | "bodyReaction" | "selfHelpAction" | "messageToSelf";
 
 type WorryRecord = {
   worry: string;
@@ -123,6 +125,13 @@ const resultOptions: ActualResult[] = [
   "发生了，但没有我想象中严重",
   "今天还没法判断",
 ];
+
+const voiceTargetLabels: Record<VoiceTarget, string> = {
+  worry: "我今天担心了什么？",
+  bodyReaction: "当时身体有什么反应？",
+  selfHelpAction: "我做了什么帮助自己？",
+  messageToSelf: "给今天的自己一句话",
+};
 
 const planMonths = [
   {
@@ -304,8 +313,8 @@ function RoundIcon({
   size?: number;
   filled?: boolean;
 }) {
-  const color = filled ? "#6440f4" : "currentColor";
-  const fill = filled ? "#6440f4" : "none";
+  const color = filled ? "#111111" : "currentColor";
+  const fill = filled ? "#111111" : "none";
   const inner = filled ? "#ffffff" : "currentColor";
   const common = {
     fill,
@@ -754,11 +763,17 @@ function RecordPage({
   const [messageToSelf, setMessageToSelf] = useState(existing?.messageToSelf ?? "");
   const [savedRecord, setSavedRecord] = useState<WorryRecord | undefined>(existing);
   const [isListening, setIsListening] = useState(false);
+  const [voiceSheetOpen, setVoiceSheetOpen] = useState(false);
+  const [voiceText, setVoiceText] = useState("");
   const [interimText, setInterimText] = useState("");
-  const [speechHint, setSpeechHint] = useState("点击后说出今天担心的事，会自动填到第一个输入框。");
-  const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState("");
+  const [focusedField, setFocusedField] = useState<VoiceTarget | null>(null);
+  const [voiceTarget, setVoiceTarget] = useState<VoiceTarget>("worry");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const worryInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const voiceTextRef = useRef("");
+  const interimTextRef = useRef("");
+  const toastTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const next = today.worryRecord;
@@ -778,29 +793,66 @@ function RecordPage({
     return `${safeMessage} 我担心的事和最后发生的事之间，有一点距离。`;
   }, [actualResult, messageToSelf]);
 
-  const appendWorry = (text: string) => {
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const appendText = (current: string, text: string) => {
     const cleaned = text.trim();
-    if (!cleaned) return;
-    setWorry((current) => `${current}${current.trim() ? " " : ""}${cleaned}`);
+    if (!cleaned) return current;
+    return `${current}${current.trim() ? " " : ""}${cleaned}`;
+  };
+
+  const showToast = (message: string) => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    setToastMessage(message);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastMessage("");
+      toastTimerRef.current = null;
+    }, 2200);
   };
 
   const stopListening = () => {
+    const fallbackText = interimTextRef.current.trim();
+    if (fallbackText) {
+      setVoiceText((current) => {
+        const next = appendText(current, fallbackText);
+        voiceTextRef.current = next;
+        return next;
+      });
+    }
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     setIsListening(false);
     setInterimText("");
-    setSpeechHint("语音录入已暂停。你可以继续手动修改文字。");
+    interimTextRef.current = "";
+    showToast("录入已结束。可以点确定回填。");
   };
 
-  const handleVoiceInput = () => {
-    if (isListening) {
-      stopListening();
-      return;
-    }
+  const openVoiceSheet = () => {
+    setVoiceSheetOpen(true);
+    setVoiceText("");
+    voiceTextRef.current = "";
+    setInterimText("");
+    interimTextRef.current = "";
+  };
+
+  const closeVoiceSheet = () => {
+    if (isListening) stopListening();
+    setVoiceSheetOpen(false);
+  };
+
+  const startVoiceRecording = () => {
+    if (isListening) return;
 
     const SpeechRecognitionConstructor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!SpeechRecognitionConstructor) {
-      setSpeechHint("当前浏览器暂不支持语音识别，可以先用文字记录。");
+      setVoiceSheetOpen(true);
+      showToast("当前浏览器暂不支持语音识别，可以先用文字记录。");
       return;
     }
 
@@ -813,7 +865,7 @@ function RecordPage({
 
     recognition.onstart = () => {
       setIsListening(true);
-      setSpeechHint("正在听。你可以慢慢说，不需要组织得很完整。");
+      showToast("正在听。慢慢说就好，松开按钮会停止。");
     };
 
     recognition.onresult = (event) => {
@@ -825,8 +877,16 @@ function RecordPage({
         if (result.isFinal) finalText += transcript;
         else interim += transcript;
       }
-      appendWorry(finalText);
-      setInterimText(interim.trim());
+      if (finalText.trim()) {
+        setVoiceText((current) => {
+          const next = appendText(current, finalText);
+          voiceTextRef.current = next;
+          return next;
+        });
+      }
+      const cleanedInterim = interim.trim();
+      interimTextRef.current = cleanedInterim;
+      setInterimText(cleanedInterim);
     };
 
     recognition.onerror = (event) => {
@@ -835,19 +895,64 @@ function RecordPage({
         "no-speech": "刚才没有识别到声音，可以靠近一点再试。",
         "audio-capture": "没有检测到可用麦克风。",
       };
-      setSpeechHint(messages[event.error] ?? "语音识别暂时中断了，可以再试一次。");
+      showToast(messages[event.error] ?? "语音识别暂时中断了，可以再试一次。");
       setIsListening(false);
-      setInterimText("");
+      setInterimText(interimTextRef.current);
       recognitionRef.current = null;
     };
 
     recognition.onend = () => {
       setIsListening(false);
-      setInterimText("");
+      if (interimTextRef.current.trim()) {
+        setVoiceText((current) => {
+          const next = appendText(current, interimTextRef.current);
+          voiceTextRef.current = next;
+          return next;
+        });
+        interimTextRef.current = "";
+        setInterimText("");
+      }
       recognitionRef.current = null;
     };
 
     recognition.start();
+  };
+
+  const fillVoiceText = () => {
+    const text = appendText("", `${voiceTextRef.current} ${interimTextRef.current}`);
+    if (!text) {
+      showToast("还没有识别到内容，可以再长按说一次。");
+      return;
+    }
+
+    const setters: Record<VoiceTarget, (value: string | ((current: string) => string)) => void> = {
+      worry: setWorry,
+      bodyReaction: setBodyReaction,
+      selfHelpAction: setSelfHelpAction,
+      messageToSelf: setMessageToSelf,
+    };
+
+    setters[voiceTarget]((current) => appendText(current, text));
+    setVoiceSheetOpen(false);
+    showToast(`已回填到「${voiceTargetLabels[voiceTarget]}」。`);
+    setVoiceText("");
+    voiceTextRef.current = "";
+    setInterimText("");
+    interimTextRef.current = "";
+  };
+
+  const resetVoiceText = () => {
+    if (isListening) stopListening();
+    setVoiceText("");
+    voiceTextRef.current = "";
+    setInterimText("");
+    interimTextRef.current = "";
+    showToast("已清空。可以重新长按录入。");
+  };
+
+  const handleFieldFocus = (target: VoiceTarget) => {
+    setFocusedField(target);
+    setVoiceTarget(target);
   };
 
   const handleSave = () => {
@@ -877,14 +982,11 @@ function RecordPage({
   return (
     <section>
       <PageHeader title="今天有没有一件事，是你以为会很糟，但最后没有那么糟？" large />
-      <button className={`voice-button ${isListening ? "listening" : ""}`} type="button" onClick={handleVoiceInput}>
+      <button className="voice-button" type="button" onClick={openVoiceSheet}>
         <RoundIcon name="mic" size={18} />
-        {isListening ? "正在听，点这里停止" : "语音录入"}
+        语音录入
       </button>
-      <div className="speech-hint">
-        <p>{speechHint}</p>
-        {interimText ? <span>正在识别：{interimText}</span> : null}
-      </div>
+      {toastMessage ? <div className="app-toast" role="status">{toastMessage}</div> : null}
       <div className="form-card">
         <TextAreaField
           label="我今天担心了什么？"
@@ -892,7 +994,7 @@ function RecordPage({
           onChange={setWorry}
           placeholder={focusedField === "worry" ? "" : "可以只写几个字。"}
           inputRef={worryInputRef}
-          onFocus={() => setFocusedField("worry")}
+          onFocus={() => handleFieldFocus("worry")}
           onBlur={() => setFocusedField(null)}
         />
         <TextAreaField
@@ -900,7 +1002,7 @@ function RecordPage({
           value={bodyReaction}
           onChange={setBodyReaction}
           placeholder={focusedField === "bodyReaction" ? "" : "比如心跳快、手麻、胃紧。"}
-          onFocus={() => setFocusedField("bodyReaction")}
+          onFocus={() => handleFieldFocus("bodyReaction")}
           onBlur={() => setFocusedField(null)}
         />
         <fieldset className="result-field">
@@ -923,7 +1025,7 @@ function RecordPage({
           value={selfHelpAction}
           onChange={setSelfHelpAction}
           placeholder={focusedField === "selfHelpAction" ? "" : "喝水、坐下、走一小段、给朋友发消息，都算。"}
-          onFocus={() => setFocusedField("selfHelpAction")}
+          onFocus={() => handleFieldFocus("selfHelpAction")}
           onBlur={() => setFocusedField(null)}
         />
         <TextAreaField
@@ -931,7 +1033,7 @@ function RecordPage({
           value={messageToSelf}
           onChange={setMessageToSelf}
           placeholder={focusedField === "messageToSelf" ? "" : DEFAULT_MESSAGE}
-          onFocus={() => setFocusedField("messageToSelf")}
+          onFocus={() => handleFieldFocus("messageToSelf")}
           onBlur={() => setFocusedField(null)}
         />
         <button className="save-button" type="button" onClick={handleSave}>
@@ -944,7 +1046,89 @@ function RecordPage({
         <span>看以前的证据</span>
         <span aria-hidden="true">›</span>
       </button>
+      {voiceSheetOpen ? (
+        <VoiceSheet
+          displayText={`${voiceText}${voiceText && interimText ? " " : ""}${interimText}`.trim()}
+          isListening={isListening}
+          targetLabel={voiceTargetLabels[voiceTarget]}
+          onClose={closeVoiceSheet}
+          onFill={fillVoiceText}
+          onReset={resetVoiceText}
+          onPressStart={startVoiceRecording}
+          onPressEnd={stopListening}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function VoiceSheet({
+  displayText,
+  isListening,
+  targetLabel,
+  onClose,
+  onFill,
+  onReset,
+  onPressStart,
+  onPressEnd,
+}: {
+  displayText: string;
+  isListening: boolean;
+  targetLabel: string;
+  onClose: () => void;
+  onFill: () => void;
+  onReset: () => void;
+  onPressStart: () => void;
+  onPressEnd: () => void;
+}) {
+  const handlePointerEnd = (event: PointerEvent<HTMLButtonElement>) => {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (isListening) onPressEnd();
+  };
+
+  return (
+    <div className="voice-sheet-wrap" role="dialog" aria-modal="true" aria-label="语音录入">
+      <button className="voice-sheet-mask" type="button" aria-label="关闭语音录入" onClick={onClose} />
+      <div className="voice-sheet">
+        <div className="voice-sheet-header">
+          <div>
+            <p>语音录入</p>
+            <span>回填到：{targetLabel}</span>
+          </div>
+          <button type="button" onClick={onClose} aria-label="关闭">
+            ×
+          </button>
+        </div>
+        <div className={`voice-live-text ${displayText ? "" : "empty"}`}>
+          {displayText || "长按下方按钮，说出你想记录的话。"}
+        </div>
+        <button
+          className={`voice-hold-button ${isListening ? "listening" : ""}`}
+          type="button"
+          onContextMenu={(event) => event.preventDefault()}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            onPressStart();
+          }}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onPointerLeave={() => {
+            if (isListening) onPressEnd();
+          }}
+        >
+          <RoundIcon name="mic" size={28} filled={isListening} />
+          <span>{isListening ? "松开结束" : "按住说话"}</span>
+        </button>
+        <div className="voice-action-row">
+          <button className="voice-reset-button" type="button" onClick={onReset}>
+            重置
+          </button>
+          <button className="voice-fill-button" type="button" onClick={onFill}>
+            确定
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
