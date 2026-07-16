@@ -2,11 +2,16 @@
   "name": "慢慢回来",
   "short_name": "慢慢回来",
   "description": "一个低负担、低压力的健康恢复工具。",
+  "id": "./",
+  "lang": "zh-CN",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
+  "orientation": "portrait",
   "background_color": "#f0efff",
   "theme_color": "#111111",
+  "categories": ["health", "lifestyle"],
   "icons": [
     {
       "src": "app-icon-192.png",
