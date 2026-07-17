@@ -41,6 +41,7 @@ type IconName =
   | "save"
   | "scale"
   | "search"
+  | "settings"
   | "shoulder"
   | "sleep"
   | "soup"
@@ -144,8 +145,11 @@ declare global {
   }
 }
 
-const STORAGE_KEY = "manmanhuilai.fresh.records.v1";
+const STORAGE_KEY = "manmanhuilai.records";
+const STORAGE_BACKUP_KEY = "manmanhuilai.records.backup";
+const LEGACY_STORAGE_KEYS = ["manmanhuilai.fresh.records.v1"];
 const DEFAULT_MESSAGE = "我今天不是失败了，我只是很累。";
+const APP_VERSION = "0.1.0";
 
 const statusLabels: Record<TaskStatus, string> = {
   not_started: "未开始",
@@ -463,6 +467,12 @@ function parseDateKey(date: string) {
   return new Date(year, month - 1, day);
 }
 
+function isDateKey(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = parseDateKey(value);
+  return formatDateKey(parsed) === value;
+}
+
 function getStartOfToday(now = new Date()) {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
@@ -676,19 +686,63 @@ function createEmptyRecord(date = todayKey()): DailyRecoveryRecord {
   };
 }
 
-function readRecords(): DailyRecoveryRecord[] {
+function normalizeRecord(record: Partial<DailyRecoveryRecord>): DailyRecoveryRecord | null {
+  if (!record.date || !isDateKey(record.date)) return null;
+  const emptyRecord = createEmptyRecord(record.date);
+
+  return {
+    ...emptyRecord,
+    ...record,
+    sunlightStatus: record.sunlightStatus ?? "not_started",
+    walkStatus: record.walkStatus ?? "not_started",
+    recordStatus: record.recordStatus ?? "not_started",
+    dailyTasks: record.dailyTasks?.length ? record.dailyTasks.map(normalizeDailyTask) : record.dailyTasks,
+  };
+}
+
+function mergeRecordsByDate(records: DailyRecoveryRecord[]) {
+  const recordMap = new Map<string, DailyRecoveryRecord>();
+
+  records.forEach((record) => {
+    const normalized = normalizeRecord(record);
+    if (!normalized) return;
+    const existing = recordMap.get(normalized.date);
+    recordMap.set(normalized.date, existing ? { ...existing, ...normalized } : normalized);
+  });
+
+  return Array.from(recordMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function readRecordsFromStorageKey(key: string): DailyRecoveryRecord[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.flatMap((record) => {
+      const normalized = normalizeRecord(record);
+      return normalized ? [normalized] : [];
+    }) : [];
   } catch {
     return [];
   }
 }
 
+function readRecords(): DailyRecoveryRecord[] {
+  const records = mergeRecordsByDate([
+    ...readRecordsFromStorageKey(STORAGE_BACKUP_KEY),
+    ...LEGACY_STORAGE_KEYS.flatMap((key) => readRecordsFromStorageKey(key)),
+    ...readRecordsFromStorageKey(STORAGE_KEY),
+  ]);
+
+  if (records.length > 0) writeRecords(records);
+  return records;
+}
+
 function writeRecords(records: DailyRecoveryRecord[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  const normalizedRecords = mergeRecordsByDate(records);
+  const value = JSON.stringify(normalizedRecords);
+  localStorage.setItem(STORAGE_KEY, value);
+  localStorage.setItem(STORAGE_BACKUP_KEY, value);
 }
 
 function mergeRecordIntoList(records: DailyRecoveryRecord[], record: DailyRecoveryRecord) {
@@ -699,8 +753,7 @@ function mergeRecordIntoList(records: DailyRecoveryRecord[], record: DailyRecove
   return nextRecords.sort((a, b) => b.date.localeCompare(a.date));
 }
 
-function getTodayRecord() {
-  const date = todayKey();
+function getRecordForDate(date = todayKey()) {
   const record = readRecords().find((item) => item.date === date) ?? createEmptyRecord(date);
   return {
     ...record,
@@ -715,16 +768,16 @@ function upsertRecord(record: DailyRecoveryRecord) {
   return record;
 }
 
-function deleteWorryRecord() {
-  const record = getTodayRecord();
+function deleteWorryRecord(date = todayKey()) {
+  const record = getRecordForDate(date);
   const nextRecord = { ...record };
   delete nextRecord.worryRecord;
   upsertRecord(nextRecord);
   return nextRecord;
 }
 
-function deleteTodayDailyTasksRecord() {
-  const record = getTodayRecord();
+function deleteDailyTasksRecord(date = todayKey()) {
+  const record = getRecordForDate(date);
   const nextRecord: DailyRecoveryRecord = {
     ...record,
     sunlightStatus: "not_started",
@@ -930,6 +983,12 @@ function RoundIcon({
       <>
         <rect {...common} x="4" y="5" width="13" height="13" rx="4" />
         <path d="m15 16 5 5M8 9h5M8 13h3" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
+      </>
+    ),
+    settings: (
+      <>
+        <rect {...common} x="4" y="4" width="16" height="16" rx="4" />
+        <path d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7ZM12 3v3M12 18v3M3 12h3M18 12h3" fill="none" stroke={inner} strokeLinecap="round" strokeWidth="2" />
       </>
     ),
     chat: (
@@ -1368,11 +1427,11 @@ function HomePage({
   onSaveDailyTasks: (tasks: DailyTaskRecord[]) => void;
   openDailyHistory: () => void;
 }) {
-  const [draftTasks, setDraftTasks] = useState(() => getDefaultDailyTasksForDate(today.date));
+  const [draftTasks, setDraftTasks] = useState<DailyTaskRecord[]>(() => getDefaultDailyTasksForDate(today.date));
   const [saveAnimationKey, setSaveAnimationKey] = useState(0);
 
   useEffect(() => {
-    setDraftTasks(getDefaultDailyTasksForDate(today.date));
+    setDraftTasks(today.dailyTasks ?? getDefaultDailyTasksForDate(today.date));
   }, [today.date]);
 
   const handleTaskChange = (taskId: string, status: TaskStatus) => {
@@ -1456,7 +1515,43 @@ function HomePage({
           已放好
         </div>
       ) : null}
+      <UpdateVersionCard />
     </section>
+  );
+}
+
+function UpdateVersionCard() {
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const updateVersion = async () => {
+    if (isUpdating) return;
+    const confirmed = window.confirm(
+      `更新版本 ${APP_VERSION}\n\n本次会刷新软件缓存，并重新加载最新界面和功能。\n已保存的每日记录和证据卡会继续保留。\n\n确认现在更新吗？`
+    );
+    if (!confirmed) return;
+
+    setIsUpdating(true);
+
+    try {
+      if ("caches" in window) {
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+      }
+
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.update()));
+      }
+    } finally {
+      window.location.reload();
+    }
+  };
+
+  return (
+    <button className="update-version-card" type="button" onClick={updateVersion}>
+      <span>{isUpdating ? "正在更新版本" : "更新版本"}</span>
+      <RoundIcon name="settings" size={18} />
+    </button>
   );
 }
 
@@ -1523,8 +1618,13 @@ function RecordPage({
   const voiceTextRef = useRef("");
   const interimTextRef = useRef("");
   const toastTimerRef = useRef<number | null>(null);
+  const skipNextRecordSyncRef = useRef(false);
 
   useEffect(() => {
+    if (skipNextRecordSyncRef.current) {
+      skipNextRecordSyncRef.current = false;
+      return;
+    }
     const next = today.worryRecord;
     setWorry(next?.worry ?? "");
     setBodyReaction(next?.bodyReaction ?? "");
@@ -1535,12 +1635,8 @@ function RecordPage({
   }, [today.date, today.worryRecord]);
 
   const evidence = useMemo(() => {
-    const safeMessage = messageToSelf.trim() || DEFAULT_MESSAGE;
-    if (actualResult === "今天还没法判断") {
-      return `${safeMessage} 事情还没有答案，但我已经在照顾自己。`;
-    }
-    return `${safeMessage} 我担心的事和最后发生的事之间，有一点距离。`;
-  }, [actualResult, messageToSelf]);
+    return messageToSelf.trim() || DEFAULT_MESSAGE;
+  }, [messageToSelf]);
 
   useEffect(() => {
     return () => {
@@ -1713,8 +1809,15 @@ function RecordPage({
       messageToSelf: messageToSelf.trim() || DEFAULT_MESSAGE,
       evidence,
     };
+    skipNextRecordSyncRef.current = true;
     onSave(record);
-    setSavedRecord(record);
+    setWorry("");
+    setBodyReaction("");
+    setActualResult("没发生");
+    setSelfHelpAction("");
+    setMessageToSelf("");
+    setSavedRecord(undefined);
+    showToast("已保存。页面已经回到默认状态。");
   };
 
   const handleDelete = () => {
@@ -2017,9 +2120,11 @@ function PlanHistoryPage({ records }: { records: DailyRecoveryRecord[] }) {
 function DailyHistoryPage({
   records,
   onDeleteToday,
+  onImportRecords,
 }: {
   records: DailyRecoveryRecord[];
   onDeleteToday: () => void;
+  onImportRecords: (records: DailyRecoveryRecord[]) => void;
 }) {
   const items = records.filter((record) => record.dailyTasksSavedAt && record.dailyTasks?.length);
   const today = todayKey();
@@ -2058,12 +2163,92 @@ function DailyHistoryPage({
           ))}
         </div>
       )}
+      <DataBackupCard records={records} onImportRecords={onImportRecords} />
     </section>
   );
 }
 
-function EvidenceHistoryPage({ records }: { records: DailyRecoveryRecord[] }) {
+function DataBackupCard({
+  records,
+  onImportRecords,
+}: {
+  records: DailyRecoveryRecord[];
+  onImportRecords: (records: DailyRecoveryRecord[]) => void;
+}) {
+  const exportRecords = () => {
+    const payload = {
+      app: "慢慢回来",
+      exportedAt: new Date().toISOString(),
+      records,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `慢慢回来-恢复记录-${todayKey()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importRecords = (file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result ?? ""));
+        const candidateRecords = Array.isArray(parsed) ? parsed : parsed.records;
+        if (!Array.isArray(candidateRecords)) throw new Error("invalid records");
+        const normalizedRecords = mergeRecordsByDate(candidateRecords);
+        if (normalizedRecords.length === 0) throw new Error("empty records");
+        if (!window.confirm(`将导入 ${normalizedRecords.length} 天记录，并和当前数据合并。继续吗？`)) return;
+        onImportRecords(normalizedRecords);
+        window.alert("导入完成，之前的记录已经合并进来了。");
+      } catch {
+        window.alert("这个文件不像是「慢慢回来」的记录备份，导入失败。");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <article className="soft-card data-backup-card">
+      <div>
+        <h2>数据备份</h2>
+        <p>换手机、换链接或重新安装前，可以先导出；回来后再导入。</p>
+      </div>
+      <div className="data-backup-actions">
+        <button type="button" onClick={exportRecords}>导出数据</button>
+        <label>
+          导入数据
+          <input
+            accept="application/json,.json"
+            type="file"
+            onChange={(event) => {
+              importRecords(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
+        </label>
+      </div>
+    </article>
+  );
+}
+
+function EvidenceHistoryPage({
+  records,
+  onDeleteToday,
+}: {
+  records: DailyRecoveryRecord[];
+  onDeleteToday: () => void;
+}) {
   const items = records.filter((record) => record.worryRecord);
+  const today = todayKey();
+
+  const handleDeleteToday = () => {
+    if (!window.confirm("确定删除今天这张证据卡吗？删除后，今天的文字记录会被清空。")) return;
+    onDeleteToday();
+  };
+
   return (
     <section>
       <PageHeader title="记录列表" subtitle="这里放的是身体慢慢学到的新证据，不需要每天都有。" />
@@ -2073,7 +2258,14 @@ function EvidenceHistoryPage({ records }: { records: DailyRecoveryRecord[] }) {
         <div className="card-list">
           {items.map((record) => (
             <article className="soft-card" key={record.date}>
-              <time>{record.date}</time>
+              <div className="task-history-title-row">
+                <time>{record.date}</time>
+                {record.date === today ? (
+                  <button className="delete-button" type="button" onClick={handleDeleteToday}>
+                    删除
+                  </button>
+                ) : null}
+              </div>
               <p><b>担心：</b>{record.worryRecord?.worry}</p>
               <p><b>实际结果：</b>{record.worryRecord?.actualResult}</p>
               <p><b>今日证据：</b>{record.worryRecord?.evidence}</p>
@@ -2087,7 +2279,7 @@ function EvidenceHistoryPage({ records }: { records: DailyRecoveryRecord[] }) {
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("home");
-  const [today, setToday] = useState<DailyRecoveryRecord>(() => getTodayRecord());
+  const [today, setToday] = useState<DailyRecoveryRecord>(() => getRecordForDate(todayKey()));
   const [records, setRecords] = useState(() => readRecords());
   const tabScrollPositionsRef = useRef<Partial<Record<TabKey, number>>>({ home: 0 });
 
@@ -2108,12 +2300,12 @@ export function App() {
   };
 
   const refresh = () => {
-    setToday(getTodayRecord());
+    setToday(getRecordForDate(todayKey()));
     setRecords(readRecords());
   };
 
   const handleSaveDailyTasks = (tasks: DailyTaskRecord[]) => {
-    const current = getTodayRecord();
+    const current = getRecordForDate(todayKey());
     const sunlightTask = tasks.find((task) => task.title.includes("太阳"));
     const walkTask = tasks.find((task) => task.title.includes("散步") || task.title.includes("快走") || task.title.includes("轻快走"));
     const evidenceTask = tasks.find((task) => task.title.includes("灾难"));
@@ -2132,7 +2324,7 @@ export function App() {
   };
 
   const handleSaveWorry = (record: WorryRecord) => {
-    const current = getTodayRecord();
+    const current = getRecordForDate(todayKey());
     const savedRecord = upsertRecord({
       ...current,
       recordStatus: "done",
@@ -2147,13 +2339,20 @@ export function App() {
   };
 
   const handleDeleteWorry = () => {
-    deleteWorryRecord();
+    deleteWorryRecord(todayKey());
     refresh();
   };
 
   const handleDeleteTodayDailyTasks = () => {
-    deleteTodayDailyTasksRecord();
+    deleteDailyTasksRecord(todayKey());
     refresh();
+  };
+
+  const handleImportRecords = (importedRecords: DailyRecoveryRecord[]) => {
+    const nextRecords = mergeRecordsByDate([...readRecords(), ...importedRecords]);
+    writeRecords(nextRecords);
+    setRecords(nextRecords);
+    setToday(getRecordForDate(todayKey()));
   };
 
   return (
@@ -2179,9 +2378,13 @@ export function App() {
       ) : null}
       {activeTab === "planHistory" ? <PlanHistoryPage records={records} /> : null}
       {activeTab === "dailyHistory" ? (
-        <DailyHistoryPage records={records} onDeleteToday={handleDeleteTodayDailyTasks} />
+        <DailyHistoryPage
+          records={records}
+          onDeleteToday={handleDeleteTodayDailyTasks}
+          onImportRecords={handleImportRecords}
+        />
       ) : null}
-      {activeTab === "evidenceHistory" ? <EvidenceHistoryPage records={records} /> : null}
+      {activeTab === "evidenceHistory" ? <EvidenceHistoryPage records={records} onDeleteToday={handleDeleteWorry} /> : null}
     </Shell>
   );
 }

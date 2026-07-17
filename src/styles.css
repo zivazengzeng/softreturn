@@ -326,6 +326,21 @@ button {
   }
 }
 
+.update-version-card {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 14px;
+  border: 0;
+  background: transparent;
+  color: #525765;
+  padding: 4px 2px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .page-header {
   padding: 24px 4px 0;
   margin-bottom: 22px;
@@ -736,9 +751,58 @@ button {
   white-space: nowrap;
 }
 
+.data-backup-card {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.data-backup-card h2 {
+  margin: 0;
+  color: #111111;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.data-backup-card p {
+  margin: 6px 0 0;
+  color: #888594;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.data-backup-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.data-backup-actions button,
+.data-backup-actions label {
+  display: grid;
+  min-height: 46px;
+  place-items: center;
+  border: 1px solid #111111;
+  border-radius: 12px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.data-backup-actions label {
+  background: #ffffff;
+  color: #111111;
+}
+
+.data-backup-actions input {
+  display: none;
+}
+
 .plan-card {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   padding-top: 18px;
 }
 
@@ -994,6 +1058,7 @@ button {
   right: 4px;
   width: 112px;
   height: 94px;
+  overflow: visible;
   pointer-events: none;
 }
 
