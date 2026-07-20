@@ -2267,7 +2267,9 @@ function EvidenceHistoryPage({
                 ) : null}
               </div>
               <p><b>担心：</b>{record.worryRecord?.worry}</p>
+              <p><b>身体反应：</b>{record.worryRecord?.bodyReaction}</p>
               <p><b>实际结果：</b>{record.worryRecord?.actualResult}</p>
+              <p><b>有效动作：</b>{record.worryRecord?.selfHelpAction}</p>
               <p><b>今日证据：</b>{record.worryRecord?.evidence}</p>
             </article>
           ))}
